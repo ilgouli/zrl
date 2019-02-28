@@ -9,6 +9,7 @@ class Model(object):
         self._gamma = kwargs.get('gamma', 0.95)
         self._action_space = kwargs.get('action_space')
         self._state_space = kwargs.get('state_space')
+        self._model_path = kwargs.get('model_path')
 
     def init(self):
         pass
@@ -19,9 +20,9 @@ class Model(object):
     def update(self, state, action, reward, state_next, done):
         pass
 
-    def save(self, path):
+    def save(self):
         pass
 
-    def load(self, path):
+    def load(self):
         pass
 

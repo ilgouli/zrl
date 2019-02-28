@@ -9,11 +9,12 @@ from agent import *
 class Runner(object):
     def __init__(self, **kwargs):
         self._env_name = kwargs.get('env_name')
+        self._max_iters = kwargs.get('max_iters')
         self._max_episodes = kwargs.get('max_episodes')
         self._max_steps = kwargs.get('max_steps')
         self._render = kwargs.get('render')
         self._bad_end = kwargs.get('bad_end')
-        self._path = os.path.join('./data', '{}_agent'.format(self._env_name))
+        self._data_path = os.path.join('./data', self._env_name)
         self._kwargs = kwargs
 
         self._show = kwargs.get('show')
@@ -25,30 +26,28 @@ class Runner(object):
     def init(self):
         self._env = gym.make(self._env_name)
         self._agent = Agent(
-            self._env,
-            limit_min=-5,
-            limit_max=5,
-            n_bins=50,
-            **self._kwargs)
+            self._env, data_path=self._data_path, **self._kwargs)
         self._agent.init()
-        if os.path.exists(self._path):
-            self._agent.load(self._path)
+        self._agent.load()
 
     def run(self):
         self.init()
-        for i in range(self._max_episodes):
-            reward, steps = self.run_episode()
-            logging.info("episode[%d], steps[%d], last reward[%d]", i, steps,
-                         reward)
+        for n_iter in range(self._max_iters):
+            self.run_one_iter(n_iter)
+
+    def run_one_iter(self, n_iter=0):
+        logging.info("Start iteration[%d]", n_iter)
+        for n_epi in range(self._max_episodes):
+            reward, steps = self.run_one_episode(n_epi)
 
         if not self._show:
-            self._agent.save(self._path)
+            self._agent.save()
 
-    def run_episode(self):
+    def run_one_episode(self, n_epi=0):
         state = self._env.reset()
         reward = -1
 
-        for i in range(self._max_steps):
+        for step in range(self._max_steps):
             action = self._agent.select_action(state)
             state_next, reward, done, info = self._env.step(action)
             if self._bad_end and done:
@@ -60,20 +59,22 @@ class Runner(object):
                 self._env.render()
             if done:
                 break
-        return reward, i
 
-    def show(self):
-        pass
+        logging.info("episode[%d], steps[%d], last reward[%d]", n_epi, step,
+                     reward)
+        return reward, step
 
 
 ############ run
 @click.command()
 @click.option('--env_name', default='CartPole-v0')
-@click.option('--max_episodes', default=100)
+@click.option('--max_iters', default=1)
+@click.option('--max_episodes', default=10)
 @click.option('--max_steps', default=200)
 @click.option('--render', default=0)
 @click.option('--show', default=0)
 @click.option('--bad_end', default=1)
+@click.option('--model_name', default='QLearning')
 def main(**kwargs):
     runner = Runner(**kwargs)
     runner.run()

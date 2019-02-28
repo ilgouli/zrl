@@ -9,13 +9,15 @@ from model import Model
 class QLearningModel(Model):
     def __init__(self, **kwargs):
         super(QLearningModel, self).__init__(**kwargs)
-        self._limit_min = kwargs.get('limit_min', -10.0)
-        self._limit_max = kwargs.get('limit_max', 10.0)
-        self._n_bins = kwargs.get('n_bins', 10)
+        self._limit_min = kwargs.get('limit_min', -5.0)
+        self._limit_max = kwargs.get('limit_max', 5.0)
+        self._n_bins = kwargs.get('n_bins', 50)
         self._action_bins = None
         self._state_bins = None
         self._epsilon = kwargs.get('epsilon', 0.1)
         self._lr = kwargs.get('lr', 0.5)
+
+        self._model_file = os.path.join(self._model_path, 'model.npz')
         logging.info("QLearningModel, epsilon[%.3f], lr[%.3f], gamma[%.3f]",
                      self._epsilon, self._lr, self._gamma)
 
@@ -97,16 +99,14 @@ class QLearningModel(Model):
         action = np.argmax(self._q_table[state_index, :])
         return action
 
-    def save(self, path):
-        model_path = os.path.join(path, 'model.npz')
-        logging.info("Save QAgent model to path[%s]", model_path)
-        np.savez(model_path, q_table=self._q_table)
+    def save(self):
+        logging.info("Save QAgent model to path[%s]", self._model_file)
+        np.savez(self._model_file, q_table=self._q_table)
 
-    def load(self, path):
-        model_path = os.path.join(path, 'model.npz')
-        result = np.load(model_path)
+    def load(self):
+        result = np.load(self._model_file)
         self._q_table = result['q_table']
         logging.info("Load q_table[%s] from path[%s]", self._q_table.shape,
-                     model_path)
+                     self._model_file)
 
 

@@ -15,9 +15,13 @@ class Agent(object):
             self._action_space = env.action_space
             self._state_space = env.observation_space
 
-        self._model_name = kwargs.get('model_name', 'QLearning')
+        self._data_path = kwargs.get('data_path')
+        self._model_name = kwargs.pop('model_name', 'QLearning')
+        self._model_path = os.path.join(self._data_path,
+                                        'model_{}'.format(self._model_name))
         self._model = get_model(
             self._model_name,
+            model_path=self._model_path,
             action_space=self._action_space,
             state_space=self._state_space,
             **kwargs)
@@ -31,12 +35,13 @@ class Agent(object):
     def update(self, state, action, reward, state_next, done):
         self._model.update(state, action, reward, state_next, done)
 
-    def save(self, path):
-        if not os.path.exists(path):
-            os.makedirs(path)
-        logging.info("Save Agent to path[%s]", path)
-        self._model.save(path)
+    def save(self):
+        if not os.path.exists(self._model_path):
+            os.makedirs(self._model_path)
+        logging.info("Save Agent Model to path[%s]", self._model_path)
+        self._model.save()
 
-    def load(self, path):
-        logging.info("Load Agent from path[%s]", path)
-        self._model.load(path)
+    def load(self):
+        if os.path.exists(self._model_path):
+            logging.info("Load Agent Model from path[%s]", self._model_path)
+            self._model.load()
