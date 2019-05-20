@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+from glob import glob
 import gym
 import numpy as np
 import tensorflow as tf
@@ -17,24 +18,27 @@ class DQNModel(Model):
         assert isinstance(self._state_space, gym.spaces.Box)
         self._action_size = self._action_space.n
 
-        self._batch_size = kwargs.get('batch_size', 100)
+        self._batch_size = kwargs.get('batch_size', 50)
         self._lr = kwargs.get('lr', 0.001)
+        self._optimizer = kwargs.get('optimizer', 'SGD')
         self._net_name = kwargs.get('net_name', 'mlp')
         self._layer_size = [3]
         self._epsilon = kwargs.get('epsilon', 0.1)
+        self._target_update_period = kwargs.get('target_update_period', 5)
 
         self._memory = Memory(**kwargs)
-
         self._ckpt_path = os.path.join(self._model_path, 'model.ckpt')
         self._sum_path = os.path.join(self._model_path, 'summary')
-        logging.info(
-            "DQNModel, gamma[%.3f], net[%s], batch_size[%d], lr[%.3f]",
-            self._gamma, self._net_name, self._batch_size, self._lr)
+        logging.info("DQNModel, gamma[%.3f], net[%s]", self._gamma,
+                     self._net_name)
+        logging.info("DQNModel Train, optimizer[%s], batch_size[%d], lr[%.3f]",
+                     self._optimizer, self._batch_size, self._lr)
 
     def init(self):
         self.init_net_input()
         self.build_qnet()
         self.build_train_op()
+        self.build_sync_ops()
         self.build_summary()
 
         self._sess = tf.Session()
@@ -60,12 +64,9 @@ class DQNModel(Model):
         net_func = get_net(self._net_name)
         hidden_units = self._layer_size + [self._action_size]
         self._q = net_func(
-            self._state, hidden_units=hidden_units, name='Q_primary')
+            self._state, hidden_units=hidden_units, name='Online')
         self._q_next = net_func(
-            self._state_next,
-            hidden_units=hidden_units,
-            name='Q_primary',
-            reuse=True)
+            self._state_next, hidden_units=hidden_units, name='Target')
 
     def build_train_op(self):
         self._action_select_by_q = tf.argmax(
@@ -84,11 +85,27 @@ class DQNModel(Model):
             self._q_select - tf.stop_gradient(self._y), name='loss_mse')
 
         self._step = tf.train.get_or_create_global_step()
-        self._optimizer = tf.train.AdamOptimizer(self._lr)
+        self._train_op = tf.contrib.layers.optimize_loss(
+            loss=self._loss,
+            learning_rate=self._lr,
+            optimizer=self._optimizer,
+            summaries=[
+                'loss', 'gradient_norm', 'global_gradient_norm',
+                'learning_rate'
+            ],
+            global_step=self._step)
         #print_op = tf.print('max_q_next: ', self._max_q_next,
         #        'y: ', self._y, 'q: ', self._q)
-        self._train_op = self._optimizer.minimize(
-            self._loss, global_step=self._step)
+
+    def build_sync_ops(self):
+        self._sync_qt_ops = []
+        trainables_online = tf.get_collection(
+            tf.GraphKeys.TRAINABLE_VARIABLES, scope='Online')
+        trainables_target = tf.get_collection(
+            tf.GraphKeys.TRAINABLE_VARIABLES, scope='Target')
+        for (w_online, w_target) in zip(trainables_online, trainables_target):
+            self._sync_qt_ops.append(
+                w_target.assign(w_online, use_locking=True))
 
     def build_summary(self):
         with tf.variable_scope('summary'):
@@ -98,7 +115,7 @@ class DQNModel(Model):
 
             tf.summary.histogram("batch/y", self._y)
             tf.summary.histogram("batch/q_select", self._q_select)
-            tf.summary.scalar("loss", self._loss)
+            #tf.summary.scalar("loss", self._loss)
             self._sum_all = tf.summary.merge_all()
 
     def update(self, state, action, reward, state_next, done):
@@ -120,6 +137,11 @@ class DQNModel(Model):
             [self._train_op, self._sum_all, self._step], feed_dict=feed_dict)
         self._writer.add_summary(sum_all, step)
 
+        if step % self._target_update_period == 0:
+            logging.debug("Update Target params, step[%d], period[%d]", step,
+                          self._target_update_period)
+            self._sess.run(self._sync_qt_ops)
+
     def select_action(self, state):
         if self._epsilon > np.random.rand():
             action = self._action_space.sample()
@@ -137,5 +159,6 @@ class DQNModel(Model):
         self._saver.save(self._sess, self._ckpt_path)
 
     def load(self):
-        logging.info("Load checkpoint from path[%s]", self._ckpt_path)
-        self._saver.restore(self._sess, self._ckpt_path)
+        if len(glob(self._ckpt_path + '*')) > 0:
+            logging.info("Load checkpoint from path[%s]", self._ckpt_path)
+            self._saver.restore(self._sess, self._ckpt_path)
